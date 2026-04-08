@@ -25,33 +25,7 @@ interface RecurringEvent {
 
 type Tab = "recurring" | "onetime" | "calendar";
 
-const STORAGE_KEY = "ai_calendar_events";
-const RECURRING_KEY = "ai_calendar_recurring";
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-function loadEvents(): CalEvent[] {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveEvents(events: CalEvent[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
-}
-
-function loadRecurring(): RecurringEvent[] {
-  try {
-    return JSON.parse(localStorage.getItem(RECURRING_KEY) ?? "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveRecurring(events: RecurringEvent[]) {
-  localStorage.setItem(RECURRING_KEY, JSON.stringify(events));
-}
 
 function expandRecurring(recurring: RecurringEvent[]): CalEvent[] {
   const now = new Date();
@@ -99,11 +73,11 @@ export default function CalendarApp() {
   const [rEnd, setREnd] = useState("10:00");
 
   useEffect(() => {
-    setEvents(loadEvents());
-    setRecurring(loadRecurring());
+    fetch("/api/events").then((r) => r.json()).then(setEvents);
+    fetch("/api/recurring").then((r) => r.json()).then(setRecurring);
   }, []);
 
-  function handleAddRecurring(e: React.FormEvent) {
+  async function handleAddRecurring(e: React.FormEvent) {
     e.preventDefault();
     if (!rTitle.trim()) return;
     if (rStart >= rEnd) {
@@ -118,16 +92,18 @@ export default function CalendarApp() {
       endTime: rEnd,
       color: "#6366f1",
     };
-    const updated = [...recurring, newEvent];
-    setRecurring(updated);
-    saveRecurring(updated);
+    await fetch("/api/recurring", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newEvent),
+    });
+    setRecurring((prev) => [...prev, newEvent]);
     setRTitle("");
   }
 
-  function handleDeleteRecurring(id: string) {
-    const updated = recurring.filter((r) => r.id !== id);
-    setRecurring(updated);
-    saveRecurring(updated);
+  async function handleDeleteRecurring(id: string) {
+    await fetch(`/api/recurring/${id}`, { method: "DELETE" });
+    setRecurring((prev) => prev.filter((r) => r.id !== id));
   }
 
   async function handleSchedule(e: React.FormEvent) {
@@ -160,9 +136,12 @@ export default function CalendarApp() {
       return;
     }
 
-    const updated = [...events, data.event!];
-    setEvents(updated);
-    saveEvents(updated);
+    await fetch("/api/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data.event),
+    });
+    setEvents((prev) => [...prev, data.event!]);
     setLastReason(data.reason ?? null);
     setInput("");
 
@@ -175,14 +154,13 @@ export default function CalendarApp() {
     setActiveTab("calendar");
   }
 
-  function handleEventClick(info: { event: { id: string; title: string; startStr: string; endStr: string } }) {
+  async function handleEventClick(info: { event: { id: string; title: string; startStr: string; endStr: string } }) {
     const confirmed = window.confirm(
       `"${info.event.title}"\n${info.event.startStr} → ${info.event.endStr}\n\nDelete this event?`
     );
     if (confirmed) {
-      const updated = events.filter((e) => e.id !== info.event.id);
-      setEvents(updated);
-      saveEvents(updated);
+      await fetch(`/api/events/${info.event.id}`, { method: "DELETE" });
+      setEvents((prev) => prev.filter((e) => e.id !== info.event.id));
     }
   }
 
