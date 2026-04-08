@@ -54,7 +54,7 @@ function expandRecurring(recurring: RecurringEvent[]): CalEvent[] {
   return result;
 }
 
-export default function CalendarApp() {
+export default function CalendarApp({ userEmail }: { userEmail: string }) {
   const calendarRef = useRef<FullCalendar>(null);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [recurring, setRecurring] = useState<RecurringEvent[]>([]);
@@ -186,7 +186,19 @@ export default function CalendarApp() {
                 <p className="header-sub">Intelligent scheduling, powered by Claude</p>
               </div>
             </div>
-            <div className="header-badge">Claude AI</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{userEmail}</span>
+              <button
+                onClick={async () => {
+                  await fetch("/api/auth/logout", { method: "POST" });
+                  window.location.href = "/login";
+                }}
+                className="header-badge"
+                style={{ cursor: "pointer", background: "rgba(248, 113, 113, 0.15)", borderColor: "rgba(248, 113, 113, 0.4)", color: "#f87171" }}
+              >
+                Sign Out
+              </button>
+            </div>
           </div>
         </header>
 

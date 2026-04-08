@@ -1,17 +1,16 @@
-import { getDb } from "@/lib/db";
-
-interface RecurringRow {
-  id: string;
-  title: string;
-  days_of_week: string;
-  start_time: string;
-  end_time: string;
-  color: string | null;
-}
+import { sql, ensureTables } from "@/lib/db";
+import { getSession } from "@/lib/session";
 
 export async function GET() {
-  const db = getDb();
-  const rows = db.prepare("SELECT * FROM recurring_events").all() as RecurringRow[];
+  const session = await getSession();
+  if (!session) return Response.json([], { status: 401 });
+
+  await ensureTables();
+
+  const rows = await sql`
+    SELECT id, title, days_of_week, start_time, end_time, color
+    FROM recurring_events WHERE user_id = ${session.userId}
+  `;
   const events = rows.map((r) => ({
     id: r.id,
     title: r.title,
@@ -24,10 +23,16 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const session = await getSession();
+  if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
   const { id, title, daysOfWeek, startTime, endTime, color } = await request.json();
-  const db = getDb();
-  db.prepare(
-    "INSERT INTO recurring_events (id, title, days_of_week, start_time, end_time, color) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(id, title, JSON.stringify(daysOfWeek), startTime, endTime, color ?? null);
+
+  await ensureTables();
+
+  await sql`
+    INSERT INTO recurring_events (id, user_id, title, days_of_week, start_time, end_time, color)
+    VALUES (${id}, ${session.userId}, ${title}, ${JSON.stringify(daysOfWeek)}, ${startTime}, ${endTime}, ${color ?? null})
+  `;
   return Response.json({ ok: true });
 }

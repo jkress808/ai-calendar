@@ -1,11 +1,17 @@
-import { getDb } from "@/lib/db";
+import { sql, ensureTables } from "@/lib/db";
+import { getSession } from "@/lib/session";
 
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await getSession();
+  if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
   const { id } = await params;
-  const db = getDb();
-  db.prepare("DELETE FROM recurring_events WHERE id = ?").run(id);
+
+  await ensureTables();
+
+  await sql`DELETE FROM recurring_events WHERE id = ${id} AND user_id = ${session.userId}`;
   return Response.json({ ok: true });
 }
