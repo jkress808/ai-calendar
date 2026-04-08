@@ -2,15 +2,32 @@
 
 ## Project: AI Calendar
 
-A Next.js 16 app where users describe events in plain language and Claude Haiku finds the best open time slot.
+A Next.js 16 app with a conversational AI assistant (Claude Haiku) that helps users manage their calendar through natural language chat.
 
 ### Architecture
-- `components/CalendarApp.tsx` — all UI (client component, three tabs: recurring, one-time, calendar view)
-- `app/api/schedule/route.ts` — POST endpoint that calls Claude Haiku and returns a scheduled event
+- `components/CalendarApp.tsx` — all UI (client component, three tabs: recurring, AI chat, calendar view)
+- `app/api/chat/route.ts` — POST endpoint that runs a Claude tool-use loop for calendar CRUD operations
+- `app/api/schedule/route.ts` — legacy POST endpoint for one-shot scheduling (kept for backwards compat)
+- `app/api/events/route.ts` — GET/POST for one-time events
+- `app/api/events/[id]/route.ts` — PUT/DELETE for single events
+- `app/api/recurring/route.ts` — GET/POST for recurring events
+- `app/api/recurring/[id]/route.ts` — DELETE for single recurring events
 - `app/login/page.tsx` — login/register page (client component)
 - `lib/db.ts` — Neon Postgres connection via `@neondatabase/serverless`
 - `lib/session.ts` — JWT session management via `jose` (cookie-based)
 - Storage: Neon Postgres with `users`, `events`, and `recurring_events` tables. All data is scoped per user via `user_id`.
+
+### Chat agent (app/api/chat/route.ts)
+The agent uses Claude's tool_use feature with these tools:
+- `list_events` — list all one-time events
+- `list_recurring_events` — list all recurring events
+- `create_event` — create a one-time event
+- `update_event` — update an event's title/time
+- `delete_event` — delete a one-time event
+- `create_recurring_event` — create a weekly recurring event
+- `delete_recurring_event` — delete a recurring event
+
+The tool loop runs server-side (up to 10 iterations). The response includes the assistant's text reply and an array of actions (created/updated/deleted events) so the frontend can update local state.
 
 ### Auth
 - Custom JWT auth with `bcryptjs` for password hashing and `jose` for token signing
@@ -24,13 +41,8 @@ CalEvent:       { id, title, start: ISO string, end: ISO string, color? }
 RecurringEvent: { id, title, daysOfWeek: number[], startTime: "HH:mm", endTime: "HH:mm", color? }
 ```
 
-### Scheduling rules (enforced in the Claude prompt)
-- Window: 8am–8pm only, next 7 days
-- Recurring events are expanded into CalEvents before being sent to the API
-- Claude returns JSON: `{ title, start, end, reason }` — do NOT change this shape without updating the parser in route.ts
-
 ### Key constraints
-- The Claude model in route.ts is `claude-haiku-4-5-20251001` — keep it unless explicitly asked to change
+- The Claude model is `claude-haiku-4-5-20251001` — keep it unless explicitly asked to change
 - `expandRecurring()` only expands 7 days forward — recurring events beyond that window won't appear in conflict checks
 - Deleting an event from the calendar only removes it from `events`, not recurring
 

@@ -23,48 +23,31 @@ interface RecurringEvent {
   color?: string;
 }
 
-type Tab = "recurring" | "onetime" | "calendar";
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+interface ChatAction {
+  type: "created" | "updated" | "deleted";
+  event: CalEvent;
+}
+
+type Tab = "recurring" | "chat" | "calendar";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-function expandRecurring(recurring: RecurringEvent[]): CalEvent[] {
-  const now = new Date();
-  const result: CalEvent[] = [];
-  for (let d = 0; d < 7; d++) {
-    const day = new Date(now);
-    day.setDate(day.getDate() + d);
-    const dow = day.getDay();
-    for (const r of recurring) {
-      if (r.daysOfWeek.includes(dow)) {
-        const [sh, sm] = r.startTime.split(":").map(Number);
-        const [eh, em] = r.endTime.split(":").map(Number);
-        const start = new Date(day);
-        start.setHours(sh, sm, 0, 0);
-        const end = new Date(day);
-        end.setHours(eh, em, 0, 0);
-        result.push({
-          id: `${r.id}-${d}`,
-          title: r.title,
-          start: start.toISOString(),
-          end: end.toISOString(),
-        });
-      }
-    }
-  }
-  return result;
-}
-
 export default function CalendarApp({ userEmail }: { userEmail: string }) {
   const calendarRef = useRef<FullCalendar>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [recurring, setRecurring] = useState<RecurringEvent[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("calendar");
 
-  // One-time AI scheduling
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [lastReason, setLastReason] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
 
   // Recurring form
   const [rTitle, setRTitle] = useState("");
@@ -76,6 +59,10 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
     fetch("/api/events").then((r) => r.json()).then(setEvents);
     fetch("/api/recurring").then((r) => r.json()).then(setRecurring);
   }, []);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
 
   async function handleAddRecurring(e: React.FormEvent) {
     e.preventDefault();
@@ -106,52 +93,63 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
     setRecurring((prev) => prev.filter((r) => r.id !== id));
   }
 
-  async function handleSchedule(e: React.FormEvent) {
+  async function handleChatSend(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim() || loading) return;
+    const text = chatInput.trim();
+    if (!text || chatLoading) return;
 
-    setLoading(true);
-    setError(null);
-    setLastReason(null);
+    const userMsg: ChatMessage = { role: "user", content: text };
+    const newMessages = [...chatMessages, userMsg];
+    setChatMessages(newMessages);
+    setChatInput("");
+    setChatLoading(true);
 
-    let res: Response;
-    let data: { event?: CalEvent; reason?: string; error?: string };
     try {
-      res = await fetch("/api/schedule", {
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description: input, events: [...events, ...expandRecurring(recurring)] }),
+        body: JSON.stringify({ messages: newMessages }),
       });
-      data = await res.json();
+      const data = await res.json();
+
+      if (!res.ok) {
+        setChatMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: data.error ?? "Something went wrong. Please try again." },
+        ]);
+        setChatLoading(false);
+        return;
+      }
+
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.reply },
+      ]);
+
+      // Apply actions to local state
+      if (data.actions?.length) {
+        for (const action of data.actions as ChatAction[]) {
+          if (action.type === "created") {
+            setEvents((prev) => [...prev, action.event]);
+          } else if (action.type === "updated") {
+            setEvents((prev) =>
+              prev.map((ev) => (ev.id === action.event.id ? action.event : ev))
+            );
+          } else if (action.type === "deleted") {
+            setEvents((prev) => prev.filter((ev) => ev.id !== action.event.id));
+          }
+        }
+        // Also refresh recurring events in case those changed
+        fetch("/api/recurring").then((r) => r.json()).then(setRecurring);
+      }
     } catch {
-      setLoading(false);
-      setError("Network error — please try again");
-      return;
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Network error — please try again." },
+      ]);
     }
 
-    setLoading(false);
-
-    if (!res.ok) {
-      setError(data.error ?? "Something went wrong");
-      return;
-    }
-
-    await fetch("/api/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data.event),
-    });
-    setEvents((prev) => [...prev, data.event!]);
-    setLastReason(data.reason ?? null);
-    setInput("");
-
-    const calApi = calendarRef.current?.getApi();
-    if (calApi) {
-      calApi.gotoDate(data.event!.start);
-      calApi.changeView("timeGridWeek");
-    }
-
-    setActiveTab("calendar");
+    setChatLoading(false);
   }
 
   async function handleEventClick(info: { event: { id: string; title: string; startStr: string; endStr: string } }) {
@@ -165,14 +163,13 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
   }
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: "recurring", label: "Recurring Events", icon: "↻" },
-    { id: "onetime", label: "One-Time Event", icon: "✦" },
-    { id: "calendar", label: "View Calendar", icon: "▦" },
+    { id: "recurring", label: "Recurring Events", icon: "\u21BB" },
+    { id: "chat", label: "AI Assistant", icon: "\u2726" },
+    { id: "calendar", label: "View Calendar", icon: "\u25A6" },
   ];
 
   return (
     <div className="app-shell">
-      {/* Background overlay */}
       <div className="bg-overlay" />
 
       <div className="app-content">
@@ -180,7 +177,7 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
         <header className="glass-card app-header">
           <div className="header-inner">
             <div className="header-brand">
-              <span className="header-icon">◈</span>
+              <span className="header-icon">{"\u25C8"}</span>
               <div>
                 <h1 className="header-title">AI Calendar</h1>
                 <p className="header-sub">Intelligent scheduling, powered by Claude</p>
@@ -215,18 +212,21 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
               {tab.id === "recurring" && recurring.length > 0 && (
                 <span className="tab-badge">{recurring.length}</span>
               )}
+              {tab.id === "chat" && chatMessages.length > 0 && (
+                <span className="tab-badge">{chatMessages.length}</span>
+              )}
             </button>
           ))}
         </nav>
 
         {/* Panel */}
         <main className="panel-area">
-          {/* ── Recurring Events Tab ── */}
+          {/* Recurring Events Tab */}
           {activeTab === "recurring" && (
             <div className="glass-card panel">
               <h2 className="panel-title">Weekly Recurring Events</h2>
               <p className="panel-desc">
-                These events repeat every week and are shared with the AI when scheduling new events.
+                These events repeat every week and are visible to the AI assistant when scheduling.
               </p>
 
               <form onSubmit={handleAddRecurring} className="recurring-form">
@@ -291,7 +291,7 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
                         <div className="event-info">
                           <span className="event-name">{r.title}</span>
                           <span className="event-meta">
-                            {DAY_NAMES[r.daysOfWeek[0]]} · {r.startTime} – {r.endTime}
+                            {DAY_NAMES[r.daysOfWeek[0]]} &middot; {r.startTime} &ndash; {r.endTime}
                           </span>
                         </div>
                         <button
@@ -299,7 +299,7 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
                           className="btn-delete"
                           aria-label="Remove event"
                         >
-                          ×
+                          &times;
                         </button>
                       </li>
                     ))}
@@ -309,74 +309,95 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
 
               {recurring.length === 0 && (
                 <div className="empty-state">
-                  <span className="empty-icon">↻</span>
+                  <span className="empty-icon">{"\u21BB"}</span>
                   <p>No recurring events yet. Add one above.</p>
                 </div>
               )}
             </div>
           )}
 
-          {/* ── One-Time Event Tab ── */}
-          {activeTab === "onetime" && (
-            <div className="glass-card panel">
-              <h2 className="panel-title">Schedule with AI</h2>
+          {/* Chat Tab */}
+          {activeTab === "chat" && (
+            <div className="glass-card panel panel--chat">
+              <h2 className="panel-title">AI Assistant</h2>
               <p className="panel-desc">
-                Describe an event in plain language and Claude will find the best time for it based on your existing schedule.
+                Chat with Claude to create, move, edit, or delete events on your calendar.
               </p>
 
-              <form onSubmit={handleSchedule} className="onetime-form">
-                <div className="form-group">
-                  <label className="form-label">Describe your event</label>
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder='e.g. "1 hour gym session this week" or "dentist appointment Tuesday afternoon"'
-                    className="glass-input"
-                    disabled={loading}
-                  />
-                </div>
+              <div className="chat-messages">
+                {chatMessages.length === 0 && (
+                  <div className="chat-empty">
+                    <span className="chat-empty-icon">{"\u2726"}</span>
+                    <p>Start a conversation to manage your calendar.</p>
+                    <div className="chat-suggestions">
+                      {[
+                        "Schedule a gym session this week",
+                        "What's on my calendar tomorrow?",
+                        "Move my dentist appointment to Friday",
+                        "Delete all events on Monday",
+                      ].map((s) => (
+                        <button
+                          key={s}
+                          className="chat-suggestion"
+                          onClick={() => {
+                            setChatInput(s);
+                          }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`chat-bubble chat-bubble--${msg.role}`}>
+                    <div className="chat-bubble-label">
+                      {msg.role === "user" ? "You" : "Claude"}
+                    </div>
+                    <div className="chat-bubble-text">{msg.content}</div>
+                  </div>
+                ))}
+
+                {chatLoading && (
+                  <div className="chat-bubble chat-bubble--assistant">
+                    <div className="chat-bubble-label">Claude</div>
+                    <div className="chat-bubble-text chat-typing">
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                    </div>
+                  </div>
+                )}
+
+                <div ref={chatEndRef} />
+              </div>
+
+              <form onSubmit={handleChatSend} className="chat-input-bar">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask Claude to manage your calendar..."
+                  className="glass-input chat-input"
+                  disabled={chatLoading}
+                />
                 <button
                   type="submit"
-                  disabled={loading || !input.trim()}
-                  className="btn-primary"
+                  disabled={chatLoading || !chatInput.trim()}
+                  className="btn-primary chat-send"
                 >
-                  {loading ? (
-                    <span className="btn-loading">
-                      <span className="spinner" /> Scheduling…
-                    </span>
+                  {chatLoading ? (
+                    <span className="spinner" />
                   ) : (
-                    "Schedule with AI"
+                    "\u2191"
                   )}
                 </button>
               </form>
-
-              {lastReason && (
-                <div className="status-msg status-msg--success">
-                  <span className="status-icon">✓</span>
-                  <span>{lastReason}</span>
-                </div>
-              )}
-              {error && (
-                <div className="status-msg status-msg--error">
-                  <span className="status-icon">✗</span>
-                  <span>{error}</span>
-                </div>
-              )}
-
-              <div className="tips-box">
-                <h3 className="tips-title">Tips</h3>
-                <ul className="tips-list">
-                  <li>Mention day, duration, or time of day for best results</li>
-                  <li>Claude avoids conflicts with your existing events</li>
-                  <li>After scheduling, you&apos;ll be taken to the calendar</li>
-                </ul>
-              </div>
             </div>
           )}
 
-          {/* ── Calendar Tab ── */}
+          {/* Calendar Tab */}
           {activeTab === "calendar" && (
             <div className="glass-card panel panel--calendar">
               <div className="calendar-wrap">
