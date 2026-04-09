@@ -74,9 +74,9 @@ export async function POST(request: Request) {
     system: `You are a smart calendar scheduling assistant. Given a user's schedule and an event they want to add, pick the best available time slot.
 
 Rules:
-- Only schedule within 8am–8pm
+- Only schedule within 10am–10pm
 - Avoid scheduling during existing events
-- Consider the nature of the event (e.g. gym = morning, meetings = business hours)
+- Consider the nature of the event (e.g. gym = afternoon, meetings = business hours)
 - Return ONLY valid JSON with no explanation, markdown, or code fences
 
 Return this exact JSON format:
