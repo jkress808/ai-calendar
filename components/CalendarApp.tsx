@@ -298,6 +298,7 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
                         key={i}
                         type="button"
                         onClick={() => toggleDay(i)}
+                        className="day-toggle"
                         style={{
                           padding: "0.4rem 0.7rem",
                           borderRadius: "0.45rem",
@@ -471,7 +472,7 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
                 <FullCalendar
                   ref={calendarRef}
                   plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-                  initialView="timeGridWeek"
+                  initialView={typeof window !== "undefined" && window.innerWidth <= 640 ? "timeGridDay" : "timeGridWeek"}
                   headerToolbar={{
                     left: "prev,next today",
                     center: "title",
