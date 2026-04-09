@@ -26,7 +26,24 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { id, title, daysOfWeek, startTime, endTime, color } = await request.json();
+  const body = await request.json();
+  const { id, title, daysOfWeek, startTime, endTime, color } = body;
+
+  if (!id || typeof id !== "string") {
+    return Response.json({ error: "Missing or invalid 'id'" }, { status: 400 });
+  }
+  if (!title || typeof title !== "string" || !title.trim()) {
+    return Response.json({ error: "Missing or invalid 'title'" }, { status: 400 });
+  }
+  if (!Array.isArray(daysOfWeek) || daysOfWeek.length === 0 || !daysOfWeek.every((d: unknown) => typeof d === "number" && d >= 0 && d <= 6)) {
+    return Response.json({ error: "Missing or invalid 'daysOfWeek' (array of 0-6)" }, { status: 400 });
+  }
+  if (!startTime || typeof startTime !== "string" || !/^\d{2}:\d{2}$/.test(startTime)) {
+    return Response.json({ error: "Missing or invalid 'startTime' (HH:mm)" }, { status: 400 });
+  }
+  if (!endTime || typeof endTime !== "string" || !/^\d{2}:\d{2}$/.test(endTime)) {
+    return Response.json({ error: "Missing or invalid 'endTime' (HH:mm)" }, { status: 400 });
+  }
 
   await ensureTables();
 

@@ -9,7 +9,18 @@ export async function PUT(
   if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const { title, start, end, color } = await req.json();
+  const body = await req.json();
+  const { title, start, end, color } = body;
+
+  if (title !== undefined && (typeof title !== "string" || !title.trim())) {
+    return Response.json({ error: "Invalid 'title'" }, { status: 400 });
+  }
+  if (start !== undefined && typeof start !== "string") {
+    return Response.json({ error: "Invalid 'start' time" }, { status: 400 });
+  }
+  if (end !== undefined && typeof end !== "string") {
+    return Response.json({ error: "Invalid 'end' time" }, { status: 400 });
+  }
 
   await ensureTables();
 

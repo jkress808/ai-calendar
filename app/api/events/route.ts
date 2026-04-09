@@ -18,7 +18,21 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { id, title, start, end, color } = await request.json();
+  const body = await request.json();
+  const { id, title, start, end, color } = body;
+
+  if (!id || typeof id !== "string") {
+    return Response.json({ error: "Missing or invalid 'id'" }, { status: 400 });
+  }
+  if (!title || typeof title !== "string" || !title.trim()) {
+    return Response.json({ error: "Missing or invalid 'title'" }, { status: 400 });
+  }
+  if (!start || typeof start !== "string") {
+    return Response.json({ error: "Missing or invalid 'start' time" }, { status: 400 });
+  }
+  if (!end || typeof end !== "string") {
+    return Response.json({ error: "Missing or invalid 'end' time" }, { status: 400 });
+  }
 
   await ensureTables();
 

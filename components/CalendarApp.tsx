@@ -44,20 +44,51 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
   const [recurring, setRecurring] = useState<RecurringEvent[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("calendar");
 
-  // Chat state
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  // Chat state — restore from sessionStorage so history survives refresh
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = sessionStorage.getItem("ai-cal-chat");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("ai-cal-chat", JSON.stringify(chatMessages));
+    } catch { /* quota exceeded — ignore */ }
+  }, [chatMessages]);
+
   // Recurring form
   const [rTitle, setRTitle] = useState("");
-  const [rDay, setRDay] = useState<number>(1);
+  const [rDays, setRDays] = useState<number[]>([1]);
   const [rStart, setRStart] = useState("09:00");
   const [rEnd, setREnd] = useState("10:00");
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   useEffect(() => {
-    fetch("/api/events").then((r) => r.json()).then(setEvents);
-    fetch("/api/recurring").then((r) => r.json()).then(setRecurring);
+    async function loadData() {
+      try {
+        const [eventsRes, recurringRes] = await Promise.all([
+          fetch("/api/events"),
+          fetch("/api/recurring"),
+        ]);
+        if (!eventsRes.ok || !recurringRes.ok) {
+          setLoadError("Failed to load calendar data. Please refresh the page.");
+          return;
+        }
+        setEvents(await eventsRes.json());
+        setRecurring(await recurringRes.json());
+      } catch {
+        setLoadError("Network error loading calendar data. Please check your connection.");
+      }
+    }
+    loadData();
   }, []);
 
   useEffect(() => {
@@ -67,6 +98,10 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
   async function handleAddRecurring(e: React.FormEvent) {
     e.preventDefault();
     if (!rTitle.trim()) return;
+    if (rDays.length === 0) {
+      alert("Select at least one day");
+      return;
+    }
     if (rStart >= rEnd) {
       alert("End time must be after start time");
       return;
@@ -74,7 +109,7 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
     const newEvent: RecurringEvent = {
       id: crypto.randomUUID(),
       title: rTitle.trim(),
-      daysOfWeek: [rDay],
+      daysOfWeek: rDays.sort((a, b) => a - b),
       startTime: rStart,
       endTime: rEnd,
       color: "#6366f1",
@@ -86,6 +121,13 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
     });
     setRecurring((prev) => [...prev, newEvent]);
     setRTitle("");
+    setRDays([1]);
+  }
+
+  function toggleDay(day: number) {
+    setRDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+    );
   }
 
   async function handleDeleteRecurring(id: string) {
@@ -219,6 +261,13 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
           ))}
         </nav>
 
+        {loadError && (
+          <div className="status-msg status-msg--error">
+            <span className="status-icon">{"\u2717"}</span>
+            <span>{loadError}</span>
+          </div>
+        )}
+
         {/* Panel */}
         <main className="panel-area">
           {/* Recurring Events Tab */}
@@ -241,20 +290,38 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
                   />
                 </div>
 
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Day of Week</label>
-                    <select
-                      value={rDay}
-                      onChange={(e) => setRDay(Number(e.target.value))}
-                      className="glass-input"
-                    >
-                      {DAY_NAMES.map((name, i) => (
-                        <option key={i} value={i}>{name}</option>
-                      ))}
-                    </select>
+                <div className="form-group" style={{ marginBottom: "0.25rem" }}>
+                  <label className="form-label">Days of Week</label>
+                  <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+                    {DAY_NAMES.map((name, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => toggleDay(i)}
+                        style={{
+                          padding: "0.4rem 0.7rem",
+                          borderRadius: "0.45rem",
+                          border: rDays.includes(i)
+                            ? "1px solid rgba(129, 140, 248, 0.6)"
+                            : "1px solid rgba(255, 255, 255, 0.2)",
+                          background: rDays.includes(i)
+                            ? "rgba(99, 102, 241, 0.35)"
+                            : "rgba(255, 255, 255, 0.08)",
+                          color: rDays.includes(i) ? "#fff" : "var(--text-secondary)",
+                          fontSize: "0.78rem",
+                          fontFamily: "var(--font-sans)",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        {name.slice(0, 3)}
+                      </button>
+                    ))}
                   </div>
+                </div>
 
+                <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Start Time</label>
                     <input
@@ -276,7 +343,7 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
                   </div>
                 </div>
 
-                <button type="submit" disabled={!rTitle.trim()} className="btn-primary">
+                <button type="submit" disabled={!rTitle.trim() || rDays.length === 0} className="btn-primary">
                   Add Recurring Event
                 </button>
               </form>
@@ -291,7 +358,7 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
                         <div className="event-info">
                           <span className="event-name">{r.title}</span>
                           <span className="event-meta">
-                            {DAY_NAMES[r.daysOfWeek[0]]} &middot; {r.startTime} &ndash; {r.endTime}
+                            {r.daysOfWeek.map((d: number) => DAY_NAMES[d]?.slice(0, 3)).join(", ")} &middot; {r.startTime} &ndash; {r.endTime}
                           </span>
                         </div>
                         <button
