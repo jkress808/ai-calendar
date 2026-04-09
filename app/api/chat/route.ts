@@ -133,6 +133,10 @@ const tools: Anthropic.Tool[] = [
           type: "string",
           description: "Optional preferred time range like 'morning', 'afternoon', 'evening', or 'any'",
         },
+        notes: {
+          type: "string",
+          description: "Optional free-text notes with extra context for scheduling (e.g. 'prefer after lunch', 'not on leg day after gym')",
+        },
       },
       required: ["title", "times_per_week", "duration_minutes"],
     },
@@ -263,7 +267,7 @@ async function executeTool(
 
     case "list_scheduling_preferences": {
       const rows = await sql`
-        SELECT id, title, times_per_week, duration_minutes, preferred_time_range, color
+        SELECT id, title, times_per_week, duration_minutes, preferred_time_range, notes, color
         FROM scheduling_preferences WHERE user_id = ${userId}
       `;
       return { result: JSON.stringify(rows) };
@@ -275,13 +279,14 @@ async function executeTool(
       const timesPerWeek = input.times_per_week as number;
       const durationMinutes = input.duration_minutes as number;
       const preferredTimeRange = (input.preferred_time_range as string) || "any";
+      const notes = (input.notes as string) || "";
       const color = "#f59e0b";
       await sql`
-        INSERT INTO scheduling_preferences (id, user_id, title, times_per_week, duration_minutes, preferred_time_range, color)
-        VALUES (${id}, ${userId}, ${title}, ${timesPerWeek}, ${durationMinutes}, ${preferredTimeRange}, ${color})
+        INSERT INTO scheduling_preferences (id, user_id, title, times_per_week, duration_minutes, preferred_time_range, notes, color)
+        VALUES (${id}, ${userId}, ${title}, ${timesPerWeek}, ${durationMinutes}, ${preferredTimeRange}, ${notes}, ${color})
       `;
       return {
-        result: JSON.stringify({ ok: true, id, title, timesPerWeek, durationMinutes, preferredTimeRange }),
+        result: JSON.stringify({ ok: true, id, title, timesPerWeek, durationMinutes, preferredTimeRange, notes }),
       };
     }
 
@@ -355,6 +360,7 @@ Weekly Planning (Scheduling Preferences):
   7. For dog walks, prefer morning (before other activities) or evening slots
   8. For gym sessions, prefer morning or early afternoon
   9. Avoid scheduling the same activity twice in one day
+  10. Read the "notes" field on each preference — it contains user-written context about how/when to schedule that activity (e.g. "prefer after lunch", "never back-to-back with gym"). Always follow these notes.
 - When the user asks to save preferences (e.g. "I want gym 4 times a week"), use create_scheduling_preference to save it`;
 
   const apiMessages: Anthropic.MessageParam[] = messages.map((m) => ({

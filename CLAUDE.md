@@ -50,3 +50,6 @@ RecurringEvent: { id, title, daysOfWeek: number[], startTime: "HH:mm", endTime: 
 - `DATABASE_URL` — Neon Postgres connection string
 - `AUTH_SECRET` — secret for JWT signing
 - `ANTHROPIC_API_KEY` — Anthropic API key
+
+### Improvements log
+All improvements and feature additions are documented in `IMPROVEMENTS.md`. Always log new improvements there when making changes.

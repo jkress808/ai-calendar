@@ -8,7 +8,7 @@ export async function GET() {
   await ensureTables();
 
   const rows = await sql`
-    SELECT id, title, times_per_week, duration_minutes, preferred_time_range, color
+    SELECT id, title, times_per_week, duration_minutes, preferred_time_range, notes, color
     FROM scheduling_preferences WHERE user_id = ${session.userId}
   `;
   const prefs = rows.map((r) => ({
@@ -17,6 +17,7 @@ export async function GET() {
     timesPerWeek: r.times_per_week,
     durationMinutes: r.duration_minutes,
     preferredTimeRange: r.preferred_time_range ?? "any",
+    notes: r.notes ?? "",
     color: r.color ?? undefined,
   }));
   return Response.json(prefs);

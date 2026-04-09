@@ -29,6 +29,7 @@ interface SchedulingPreference {
   timesPerWeek: number;
   durationMinutes: number;
   preferredTimeRange: string;
+  notes: string;
   color?: string;
 }
 
@@ -150,6 +151,17 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
   async function handleDeletePreference(id: string) {
     await fetch(`/api/preferences/${id}`, { method: "DELETE" });
     setPreferences((prev) => prev.filter((p) => p.id !== id));
+  }
+
+  async function handleUpdatePreferenceNotes(id: string, notes: string) {
+    setPreferences((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, notes } : p))
+    );
+    await fetch(`/api/preferences/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes }),
+    });
   }
 
   function triggerPlanMyWeek(week: "this" | "next") {
@@ -417,21 +429,36 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
                   <>
                     <ul className="event-list">
                       {preferences.map((p) => (
-                        <li key={p.id} className="event-item">
-                          <div className="event-dot" style={{ background: p.color ?? "#f59e0b" }} />
-                          <div className="event-info">
-                            <span className="event-name">{p.title}</span>
-                            <span className="event-meta">
-                              {p.timesPerWeek}x/week &middot; {p.durationMinutes} min &middot; {p.preferredTimeRange}
-                            </span>
+                        <li key={p.id} className="event-item" style={{ flexDirection: "column", alignItems: "stretch" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                            <div className="event-dot" style={{ background: p.color ?? "#f59e0b" }} />
+                            <div className="event-info">
+                              <span className="event-name">{p.title}</span>
+                              <span className="event-meta">
+                                {p.timesPerWeek}x/week &middot; {p.durationMinutes} min &middot; {p.preferredTimeRange}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => handleDeletePreference(p.id)}
+                              className="btn-delete"
+                              aria-label="Remove preference"
+                            >
+                              &times;
+                            </button>
                           </div>
-                          <button
-                            onClick={() => handleDeletePreference(p.id)}
-                            className="btn-delete"
-                            aria-label="Remove preference"
-                          >
-                            &times;
-                          </button>
+                          <textarea
+                            value={p.notes}
+                            onChange={(e) => handleUpdatePreferenceNotes(p.id, e.target.value)}
+                            placeholder="Add scheduling notes (e.g. 'prefer mornings', 'not back-to-back with gym')..."
+                            className="glass-input"
+                            rows={2}
+                            style={{
+                              marginTop: "0.5rem",
+                              fontSize: "0.78rem",
+                              resize: "vertical",
+                              minHeight: "2.5rem",
+                            }}
+                          />
                         </li>
                       ))}
                     </ul>

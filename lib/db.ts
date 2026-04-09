@@ -50,9 +50,12 @@ export async function ensureTables() {
       times_per_week INTEGER NOT NULL,
       duration_minutes INTEGER NOT NULL,
       preferred_time_range TEXT,
+      notes TEXT,
       color TEXT
     )
   `;
+  // Add notes column if table already exists without it
+  await sql`ALTER TABLE scheduling_preferences ADD COLUMN IF NOT EXISTS notes TEXT`.catch(() => {});
   initialized = true;
 }
 
