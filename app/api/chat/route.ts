@@ -322,6 +322,47 @@ export async function POST(request: Request) {
   });
   const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: userTz });
 
+  // Build an explicit day-to-date reference for this week and next week
+  // so the model never has to calculate dates from day names
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const todayLocal = new Date(now.toLocaleString("en-US", { timeZone: userTz }));
+  const todayDow = todayLocal.getDay(); // 0=Sun
+
+  function formatDate(d: Date): string {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // This week: Sunday through Saturday containing today
+  const thisWeekStart = new Date(todayLocal);
+  thisWeekStart.setDate(todayLocal.getDate() - todayDow);
+  const thisWeekLines: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(thisWeekStart);
+    d.setDate(thisWeekStart.getDate() + i);
+    const past = d < todayLocal && d.toDateString() !== todayLocal.toDateString();
+    thisWeekLines.push(`  ${dayNames[i]} = ${formatDate(d)}${past ? " (past)" : ""}${d.toDateString() === todayLocal.toDateString() ? " (TODAY)" : ""}`);
+  }
+
+  // Next week: the following Sunday through Saturday
+  const nextWeekStart = new Date(thisWeekStart);
+  nextWeekStart.setDate(thisWeekStart.getDate() + 7);
+  const nextWeekLines: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(nextWeekStart);
+    d.setDate(nextWeekStart.getDate() + i);
+    nextWeekLines.push(`  ${dayNames[i]} = ${formatDate(d)}`);
+  }
+
+  const calendarRef = `
+This week:
+${thisWeekLines.join("\n")}
+
+Next week:
+${nextWeekLines.join("\n")}`;
+
   const systemPrompt = `You are a friendly and helpful AI calendar assistant. You help users manage their calendar through conversation.
 
 You can:
@@ -335,6 +376,11 @@ You can:
 - Plan a full week by creating one-time events at optimal times based on scheduling preferences
 
 Today is ${dateStr}. The current time is ${timeStr} (timezone: ${userTz}).
+
+DATE REFERENCE — use these exact dates, do NOT calculate dates yourself:
+${calendarRef}
+
+CRITICAL: When creating events, you MUST use the exact ISO date from the reference above. For example, if the user says "Monday" and the reference says Monday = 2026-04-13, use 2026-04-13 in the ISO string. Never guess or compute dates — always look them up in the reference.
 
 Guidelines:
 - Always call list_events and list_recurring_events BEFORE creating a new event so you can avoid time conflicts
