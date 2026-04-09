@@ -113,6 +113,41 @@ const tools: Anthropic.Tool[] = [
       required: ["id"],
     },
   },
+  {
+    name: "list_scheduling_preferences",
+    description:
+      "List the user's weekly scheduling preferences — activities they want scheduled flexibly each week (e.g. gym 4x/week, dog walks daily).",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "create_scheduling_preference",
+    description:
+      "Save a new weekly scheduling preference. This does NOT create events — it stores what the user wants scheduled each week so you can plan optimal times.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string", description: "Activity name (e.g. 'Gym Session')" },
+        times_per_week: { type: "number", description: "How many times per week (1-7)" },
+        duration_minutes: { type: "number", description: "Duration of each session in minutes" },
+        preferred_time_range: {
+          type: "string",
+          description: "Optional preferred time range like 'morning', 'afternoon', 'evening', or 'any'",
+        },
+      },
+      required: ["title", "times_per_week", "duration_minutes"],
+    },
+  },
+  {
+    name: "delete_scheduling_preference",
+    description: "Delete a scheduling preference by its ID.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "string", description: "The preference ID to delete" },
+      },
+      required: ["id"],
+    },
+  },
 ];
 
 async function executeTool(
@@ -226,6 +261,36 @@ async function executeTool(
       return { result: JSON.stringify({ ok: true }) };
     }
 
+    case "list_scheduling_preferences": {
+      const rows = await sql`
+        SELECT id, title, times_per_week, duration_minutes, preferred_time_range, color
+        FROM scheduling_preferences WHERE user_id = ${userId}
+      `;
+      return { result: JSON.stringify(rows) };
+    }
+
+    case "create_scheduling_preference": {
+      const id = crypto.randomUUID();
+      const title = input.title as string;
+      const timesPerWeek = input.times_per_week as number;
+      const durationMinutes = input.duration_minutes as number;
+      const preferredTimeRange = (input.preferred_time_range as string) || "any";
+      const color = "#f59e0b";
+      await sql`
+        INSERT INTO scheduling_preferences (id, user_id, title, times_per_week, duration_minutes, preferred_time_range, color)
+        VALUES (${id}, ${userId}, ${title}, ${timesPerWeek}, ${durationMinutes}, ${preferredTimeRange}, ${color})
+      `;
+      return {
+        result: JSON.stringify({ ok: true, id, title, timesPerWeek, durationMinutes, preferredTimeRange }),
+      };
+    }
+
+    case "delete_scheduling_preference": {
+      const id = input.id as string;
+      await sql`DELETE FROM scheduling_preferences WHERE id = ${id} AND user_id = ${userId}`;
+      return { result: JSON.stringify({ ok: true }) };
+    }
+
     default:
       return { result: JSON.stringify({ error: "Unknown tool" }) };
   }
@@ -261,6 +326,8 @@ You can:
 - Delete events
 - View and discuss the user's schedule
 - Create and manage recurring weekly events
+- Manage scheduling preferences (activities the user wants scheduled flexibly each week)
+- Plan a full week by creating one-time events at optimal times based on scheduling preferences
 
 Today is ${dateStr}. The current time is ${timeStr} (timezone: ${userTz}).
 
@@ -274,7 +341,21 @@ Guidelines:
 - When creating events, consider the nature of the event (gym = morning/afternoon, meetings = business hours, dinner = evening, etc.)
 - Leave at least a 15-minute buffer between back-to-back events when possible
 - If the user's request is ambiguous about duration, use sensible defaults: meetings = 1 hour, gym = 1 hour, lunch = 45 min, quick tasks = 30 min
-- Keep responses concise but friendly`;
+- Keep responses concise but friendly
+
+Weekly Planning (Scheduling Preferences):
+- Users can save scheduling preferences — activities they want scheduled a certain number of times per week with flexible timing
+- When the user asks to "plan my week", "schedule my week", or similar:
+  1. Call list_scheduling_preferences to get their saved preferences
+  2. Call list_events and list_recurring_events to see existing commitments
+  3. Create one-time events for the requested week, spreading them across available days
+  4. Vary the times day-to-day to find the most convenient slots around existing events
+  5. Distribute activities evenly across the week (e.g. gym 4x/week should not be 4 consecutive days if possible)
+  6. Respect preferred_time_range: "morning" = 6am-12pm, "afternoon" = 12pm-5pm, "evening" = 5pm-9pm, "any" = 8am-8pm
+  7. For dog walks, prefer morning (before other activities) or evening slots
+  8. For gym sessions, prefer morning or early afternoon
+  9. Avoid scheduling the same activity twice in one day
+- When the user asks to save preferences (e.g. "I want gym 4 times a week"), use create_scheduling_preference to save it`;
 
   const apiMessages: Anthropic.MessageParam[] = messages.map((m) => ({
     role: m.role,
@@ -286,7 +367,7 @@ Guidelines:
 
   // Tool-use loop: keep calling Claude until it stops using tools
   let currentMessages = apiMessages;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 25; i++) {
     const response = await anthropic.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,

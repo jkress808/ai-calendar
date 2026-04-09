@@ -23,6 +23,15 @@ interface RecurringEvent {
   color?: string;
 }
 
+interface SchedulingPreference {
+  id: string;
+  title: string;
+  timesPerWeek: number;
+  durationMinutes: number;
+  preferredTimeRange: string;
+  color?: string;
+}
+
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -42,6 +51,7 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [recurring, setRecurring] = useState<RecurringEvent[]>([]);
+  const [preferences, setPreferences] = useState<SchedulingPreference[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("calendar");
 
   // Chat state — restore from sessionStorage so history survives refresh
@@ -74,16 +84,18 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
   useEffect(() => {
     async function loadData() {
       try {
-        const [eventsRes, recurringRes] = await Promise.all([
+        const [eventsRes, recurringRes, prefsRes] = await Promise.all([
           fetch("/api/events"),
           fetch("/api/recurring"),
+          fetch("/api/preferences"),
         ]);
-        if (!eventsRes.ok || !recurringRes.ok) {
+        if (!eventsRes.ok || !recurringRes.ok || !prefsRes.ok) {
           setLoadError("Failed to load calendar data. Please refresh the page.");
           return;
         }
         setEvents(await eventsRes.json());
         setRecurring(await recurringRes.json());
+        setPreferences(await prefsRes.json());
       } catch {
         setLoadError("Network error loading calendar data. Please check your connection.");
       }
@@ -135,6 +147,17 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
     setRecurring((prev) => prev.filter((r) => r.id !== id));
   }
 
+  async function handleDeletePreference(id: string) {
+    await fetch(`/api/preferences/${id}`, { method: "DELETE" });
+    setPreferences((prev) => prev.filter((p) => p.id !== id));
+  }
+
+  function triggerPlanMyWeek(week: "this" | "next") {
+    const msg = `Plan my ${week} week — schedule all my preferred activities at the most convenient times, avoiding conflicts with existing events.`;
+    setChatInput(msg);
+    setActiveTab("chat");
+  }
+
   async function handleChatSend(e: React.FormEvent) {
     e.preventDefault();
     const text = chatInput.trim();
@@ -181,8 +204,9 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
             setEvents((prev) => prev.filter((ev) => ev.id !== action.event.id));
           }
         }
-        // Also refresh recurring events in case those changed
+        // Refresh recurring events and preferences in case those changed
         fetch("/api/recurring").then((r) => r.json()).then(setRecurring);
+        fetch("/api/preferences").then((r) => r.json()).then(setPreferences);
       }
     } catch {
       setChatMessages((prev) => [
@@ -381,6 +405,72 @@ export default function CalendarApp({ userEmail }: { userEmail: string }) {
                   <p>No recurring events yet. Add one above.</p>
                 </div>
               )}
+
+              {/* Scheduling Preferences */}
+              <div style={{ marginTop: "2rem", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "1.5rem" }}>
+                <h2 className="panel-title">Flexible Weekly Preferences</h2>
+                <p className="panel-desc">
+                  Activities you want scheduled each week at flexible times. Use the AI assistant or the buttons below to plan your week.
+                </p>
+
+                {preferences.length > 0 && (
+                  <>
+                    <ul className="event-list">
+                      {preferences.map((p) => (
+                        <li key={p.id} className="event-item">
+                          <div className="event-dot" style={{ background: p.color ?? "#f59e0b" }} />
+                          <div className="event-info">
+                            <span className="event-name">{p.title}</span>
+                            <span className="event-meta">
+                              {p.timesPerWeek}x/week &middot; {p.durationMinutes} min &middot; {p.preferredTimeRange}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleDeletePreference(p.id)}
+                            className="btn-delete"
+                            aria-label="Remove preference"
+                          >
+                            &times;
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+
+                    <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+                      <button
+                        onClick={() => triggerPlanMyWeek("this")}
+                        className="btn-primary"
+                        style={{ flex: 1 }}
+                      >
+                        Plan This Week
+                      </button>
+                      <button
+                        onClick={() => triggerPlanMyWeek("next")}
+                        className="btn-primary"
+                        style={{ flex: 1, background: "rgba(99, 102, 241, 0.3)", borderColor: "rgba(129, 140, 248, 0.5)" }}
+                      >
+                        Plan Next Week
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {preferences.length === 0 && (
+                  <div className="empty-state">
+                    <span className="empty-icon">{"\u2726"}</span>
+                    <p>No preferences yet. Tell the AI assistant what activities you want scheduled weekly.</p>
+                    <button
+                      className="chat-suggestion"
+                      onClick={() => {
+                        setChatInput("I want to schedule gym sessions 4 times a week, kendama practice 5 times a week, and walking the dogs every day — all 1 hour each. Save these as my weekly preferences.");
+                        setActiveTab("chat");
+                      }}
+                    >
+                      Set up my weekly preferences
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

@@ -42,6 +42,17 @@ export async function ensureTables() {
       color TEXT
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS scheduling_preferences (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      title TEXT NOT NULL,
+      times_per_week INTEGER NOT NULL,
+      duration_minutes INTEGER NOT NULL,
+      preferred_time_range TEXT,
+      color TEXT
+    )
+  `;
   initialized = true;
 }
 
