@@ -235,21 +235,22 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { messages } = (await request.json()) as { messages: ChatMessage[] };
+  const { messages, timezone } = (await request.json()) as { messages: ChatMessage[]; timezone?: string };
 
   if (!messages?.length) {
     return Response.json({ error: "Messages required" }, { status: 400 });
   }
 
+  const userTz = timezone || "UTC";
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: userTz,
   });
-  const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: userTz });
 
   const systemPrompt = `You are a friendly and helpful AI calendar assistant. You help users manage their calendar through conversation.
 
@@ -261,7 +262,7 @@ You can:
 - View and discuss the user's schedule
 - Create and manage recurring weekly events
 
-Today is ${dateStr}. The current time is ${timeStr} (timezone: ${tzName}).
+Today is ${dateStr}. The current time is ${timeStr} (timezone: ${userTz}).
 
 Guidelines:
 - Always call list_events and list_recurring_events BEFORE creating a new event so you can avoid time conflicts
